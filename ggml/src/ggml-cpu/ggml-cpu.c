@@ -1706,8 +1706,10 @@ static void ggml_compute_forward_mul_mat_id(
             chunk_size = 64;
         }
 
-        // disable for NUMA
-        const bool disable_chunking = ggml_is_numa();
+        // Preserve NUMA partitioning unless dynamic chunks are explicitly requested.
+        const char * numa_chunking = getenv("GGML_CPU_MUL_MAT_ID_NUMA_CHUNKING");
+        const bool enable_numa_chunking = numa_chunking && numa_chunking[0] == '1' && numa_chunking[1] == '\0';
+        const bool disable_chunking = ggml_is_numa() && !enable_numa_chunking;
 
         int64_t nchunk0 = (nr0 + chunk_size - 1) / chunk_size;
         int64_t nchunk1 = (nr1 + chunk_size - 1) / chunk_size;

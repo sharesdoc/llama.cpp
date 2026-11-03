@@ -1682,6 +1682,9 @@ static void ggml_compute_forward_mul_mat_id(
 
     ggml_barrier(params->threadpool);
 
+    const char * numa_chunking = getenv("GGML_CPU_MUL_MAT_ID_NUMA_CHUNKING");
+    const bool enable_numa_chunking = numa_chunking && numa_chunking[0] == '1' && numa_chunking[1] == '\0';
+
     for (int cur_a = 0; cur_a < n_as; ++cur_a) {
         const int64_t cne1 = matrix_row_counts[cur_a];
 
@@ -1707,8 +1710,6 @@ static void ggml_compute_forward_mul_mat_id(
         }
 
         // Preserve NUMA partitioning unless dynamic chunks are explicitly requested.
-        const char * numa_chunking = getenv("GGML_CPU_MUL_MAT_ID_NUMA_CHUNKING");
-        const bool enable_numa_chunking = numa_chunking && numa_chunking[0] == '1' && numa_chunking[1] == '\0';
         const bool disable_chunking = ggml_is_numa() && !enable_numa_chunking;
 
         int64_t nchunk0 = (nr0 + chunk_size - 1) / chunk_size;

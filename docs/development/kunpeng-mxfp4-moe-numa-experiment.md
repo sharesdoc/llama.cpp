@@ -46,6 +46,30 @@ This is a controlled experiment, **not** a claimed throughput optimization. Do n
 4. Check multi-request concurrent server behavior separately (`--parallel`, `--cont-batching`) to avoid conflating throughput with single-sequence latency.
 5. Reject or revert if model output or backend operations regress, stability changes, or latency improvement is within noise. The operator independently verifies and accepts any result.
 
+## Important dispatch finding
+
+At this commit, `ggml/src/ggml-cpu/repack.cpp` implements its own `MUL_MAT_ID` `forward_mul_mat_id()` method for repacked CPU tensors. Its `supports_op()` can take a three-dimensional MXFP4 weight tensor when `CPU_REPACK` is the chosen buffer type and the activation input is F32. That path partitions output rows directly among threads; **it does not execute the fallback code changed in this branch**.
+
+The experimental knob therefore probes only the *fallback* CPU MoE path. The benchmark matrix **must** compare `--repack` versus `--no-repack` before attributing any results to it. A null result with repack enabled is expected if every relevant MoE op is handled by the repack backend; it does not establish that chunking is unimportant.
+
+Further source facts:
+- `repack.cpp` loops selected experts in its own `forward_mul_mat_id()`. Each worker gets an output-row interval aligned to its `NB_COLS` grouping; this is parallel across workers but is a separate scheduler from the generic CPU backend.
+- `tiled.cpp` also has a conditional `MUL_MAT_ID` dispatcher that may bypass the fallback when that dtype and expert batch size are eligible.
+- A kernel existing in a compiled binary does not establish actual hot-path dispatch. Measure it.
+- In particular, the observed 32 busy threads across eight NUMA nodes proves parallel CPU use, not efficient data locality or high SIMD utilization.
+
+### Recommended independent A/B matrix
+
+| Repack | NUMA | Environment override | Interpretation |
+|---|---|---|---|
+| on | distribute | unset | Current-like baseline |
+| on | distribute | 1 | Should match baseline if repack handles the relevant MoE ops |
+| off | distribute | unset | Fallback with conservative NUMA partitioning |
+| off | distribute | 1 | Fallback with normal dynamic chunk heuristic |
+| off | disabled | unset / 1 | Override should have no effect |
+
+The isolated test process must not reuse port 8002 while the baseline service is up. Keep model weights read-only. Use fixed prompt and fixed token cap, warm up both variants, alternate runs, report medians and deviations. Do not interpret `--no-repack` as a production recommendation.
+
 ## Subsequent research gates
 
 - Determine whether MXFP4 MoE fallback is actually used versus `repack` / tiled dispatch.
